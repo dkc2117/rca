@@ -192,7 +192,7 @@
 
 
 function [eloc, labels, theta, radius, indices] = readlocs( filename, varargin ); 
-
+verbose = false; %davec 20151019 to suppress the useless stdout messages (e.g. "readlocs(): 'loc' format assumed from file extension", but allow to easily turn back on 
 if nargin < 1
 	help readlocs;
 	return;
@@ -322,7 +322,7 @@ if isstr(filename)
        switch lower(fileextension),
         case {'loc' 'locs' }, g.filetype = 'loc';
         case 'xyz', g.filetype = 'xyz'; 
-          fprintf( [ 'WARNING: Matlab Cartesian coord. file extension (".xyz") detected.\n' ... 
+          warning( [ 'WARNING: Matlab Cartesian coord. file extension (".xyz") detected.\n' ... 
                   'If importing EGI Cartesian coords, force type "sfp" instead.\n'] );
         case 'sph', g.filetype = 'sph';
         case 'ced', g.filetype = 'chanedit';
@@ -334,7 +334,7 @@ if isstr(filename)
         case 'sfp', g.filetype = 'sfp';
         otherwise, g.filetype =  ''; 
        end;
-       fprintf('readlocs(): ''%s'' format assumed from file extension\n', g.filetype); 
+       if verbose, fprintf('readlocs(): ''%s'' format assumed from file extension\n', g.filetype); end
    else 
        if strcmpi(g.filetype, 'locs'),  g.filetype = 'loc'; end
        if strcmpi(g.filetype, 'eloc'),  g.filetype = 'loc'; end
@@ -405,10 +405,10 @@ if isstr(filename)
            array = load_file_or_array( filename, g.skiplines);
        end;
        if size(array,2) < length(g.format)
-           fprintf(['readlocs() warning: Fewer columns in the input than expected.\n' ...
+           warning(['readlocs() warning: Fewer columns in the input than expected.\n' ...
                     '                    See >> help readlocs\n']);
        elseif size(array,2) > length(g.format)
-           fprintf(['readlocs() warning: More columns in the input than expected.\n' ...
+           warning(['readlocs() warning: More columns in the input than expected.\n' ...
                     '                    See >> help readlocs\n']);
        end;
        
@@ -485,8 +485,10 @@ if isstr(filename)
            eloc = convertlocs(eloc, 'sphbesa2all');
            eloc = convertlocs(eloc, 'topo2all'); % problem with some EGI files (not BESA files)
        catch, disp('Warning: coordinate conversion failed'); end;
-       fprintf('Readlocs: BESA spherical coords. converted, now deleting BESA fields\n');   
-       fprintf('          to avoid confusion (these fields can be exported, though)\n');   
+       if verbose
+	       fprintf('Readlocs: BESA spherical coords. converted, now deleting BESA fields\n');
+           fprintf('          to avoid confusion (these fields can be exported, though)\n');   
+	   end;
        eloc = rmfield(eloc, 'sph_phi_besa');
        eloc = rmfield(eloc, 'sph_theta_besa');
 
@@ -509,7 +511,7 @@ if isstr(filename)
    % inserting labels if no labels
    % -----------------------------
    if ~isfield(eloc, 'labels')
-       fprintf('readlocs(): Inserting electrode labels automatically.\n');
+       if verbose, fprintf('readlocs(): Inserting electrode labels automatically.\n'); end;
        for index = 1:length(eloc)
            eloc(index).labels = [ 'E' int2str(index) ];
        end;
@@ -531,7 +533,7 @@ if isstr(filename)
        end;
        allchannum = [ eloc.channum ];
        if any( sort(allchannum) ~= allchannum )
-           fprintf('readlocs(): Re-sorting channel numbers based on ''channum'' column indices\n');
+           if verbose, fprintf('readlocs(): Re-sorting channel numbers based on ''channum'' column indices\n'); end;
            [tmp newindices] = sort(allchannum);
            eloc = eloc(newindices);
        end;

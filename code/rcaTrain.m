@@ -1,4 +1,4 @@
-function [Wsub,A,W,dGenSort,K] = rcaTrain(Rxx,Ryy,Rxy,K,C)
+function [Wsub,A,W,dGenSort,K] = rcaTrain(Rxx,Ryy,Rxy,K,C,verbose)
 % [WSUB,A,W]=RCATRAIN(RXX,RYY,RXY,[K],[C])
 %
 % compute spatial filters maximizing reliability across trials given precomputed auto- and cross-covariance matrices 
@@ -8,6 +8,8 @@ function [Wsub,A,W,dGenSort,K] = rcaTrain(Rxx,Ryy,Rxy,K,C)
 % Rxy: cross-covariance matrix of data records 1 and 2
 % K: number of autocovariance dimensions to diagonalize (defaults to the number of eigenvalues explaining 60% of total power)
 % C: number of components to return (defaults to 3)
+% verbose: (added 2015-10-18 davec) if true, extra info displayed with fprintf
+%   defaults to true
 %
 % Wsub: channel x component matrix of top C reliability-maximizing projection [Wsub(:,1),...,Wsub(:,C)]
 % A: channel x component matrix of corresponding forward models [A(:,1),...,A(:,C)]
@@ -37,6 +39,8 @@ function [Wsub,A,W,dGenSort,K] = rcaTrain(Rxx,Ryy,Rxy,K,C)
 % Rxx=Rxx(goodIndx,goodIndx);
 % Ryy=Ryy(goodIndx,goodIndx);
 % Rxy=Rxy(goodIndx,goodIndx);
+if ~exist('verbose', 'var'), verbose = true; end
+
 if sum(isnan(Rxx(:)))~=0 || sum(isnan(Ryy(:)))~=0 || sum(isnan(Rxy(:)))~=0
     warning('Covariance matrices contain NaNs: setting to zero...');
     Rxx(isnan(Rxx))=0; Ryy(isnan(Ryy))=0; Rxy(isnan(Rxy))=0; 
@@ -54,7 +58,7 @@ if nargin<4 || isempty(K)
     K=length(diag(eigDiag))-indxKnee;
     %thresh=0.6; % conservative for now
     %K=find(propExpl>thresh,1,'first');
-    fprintf('Using %d bases to diagonalize pooled autocovariance \n',K+1);
+    if verbose, fprintf('Using %d bases to diagonalize pooled autocovariance \n',K+1); end;
 end
 
 [Vpool,Dpool]=eig(Rxx+Ryy); 

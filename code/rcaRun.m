@@ -1,4 +1,4 @@
-function [dataOut,W,A,Rxx,Ryy,Rxy,dGen,h] = rcaRun(data,nReg,nComp,condRange,subjRange,show,locfile)
+function [dataOut,W,A,Rxx,Ryy,Rxy,dGen,h, Kout] = rcaRun(data,nReg,nComp,condRange,subjRange,show,locfile,initializePool,forceParallelization, verbose)
 % [DATAOUT,W,A,RXX,RYY,RXY]=RCARUN(DATA,[NREG],[NCOMP],[CONDRANGE],[SUBJRANGE],[SHOW],[LOCFILE])
 % perform RCA dimensionality reduction: learn reliability-maximizing filter
 %   and project data into the corresponding space
@@ -11,14 +11,21 @@ function [dataOut,W,A,Rxx,Ryy,Rxy,dGen,h] = rcaRun(data,nReg,nComp,condRange,sub
 %   of pooled covariance.  For EEG, do not set this to be the number of
 %   electrodes.  Typical values range from 5-15.  
 % nComp: number of components to return (defaults to 3)
-% condRange: if data is a cell array, a subset of conditions on which to
+% condRange: if data is a cell array, A subset of conditions on which to
 %   learn RCA spatial filters (defaults to all conditions)
 % subjRange: if data is a cell array, a subset of subjects on which to
 %   learn RCA spatial filters (defaults to all subjects)
 % show: 1 (default) to show learned components, 0 to not show
 % locfile: electrode location file as required by topoplot (defaults to
 %   128-channel GSN hydrocell)
-%
+% initializePool: (added 2015-10-18 davec) if true, parpool will be called.
+%   defaults to true, set to false if you prefer to initialize/cleanup
+%   outside this function
+% forceParallelization: (added 2015-10-18 davec) if true, data will be
+%   handled in parallel, regardless of size. defaults to false, in which
+%   case only data with nTrials > 30 will be parallelized
+% verbose: (added 2015-10-18 davec) if true, extra info is displayed with fprintf
+%   defaults to true
 % dataOut: if data is a cell, this is a corresponding cell array
 % (conditions x subjects) of dimensionality-reduced data volumes (samples x
 % components x trials); if data is a 3D array, dataOut is the corresponding
@@ -34,6 +41,9 @@ function [dataOut,W,A,Rxx,Ryy,Rxy,dGen,h] = rcaRun(data,nReg,nComp,condRange,sub
 % (1) check subplot numbering
 % (2) check preComputeRcaCovariancesLoop for mean centering consistency
 
+if ~exist('verbose', 'var'), verbose = true; end
+if ~exist('forceParallelization', 'var'), forceParallelization = false; end
+if ~exist('initializePool', 'var'), initializePool = true; end
 if nargin<7 || isempty(locfile), locfile='GSN-HydroCel-128.sfp'; end;
 if nargin<6 || isempty(show), show=1; end;
 if nargin<5 || isempty(subjRange) 
@@ -62,16 +72,16 @@ if nComp>nReg, error('number of components cannot exceed the regularization para
 % in each case
 if iscell(data)
     %[sumXX,sumYY,sumXY,nPointsInXX,nPointsInYY,nPointsInXY]=preComputeRcaCovariances(data,condRange,subjRange);
-    [sumXX,sumYY,sumXY,nPointsInXX,nPointsInYY,nPointsInXY]=preComputeRcaCovariancesLoop(data,condRange,subjRange);
+    [sumXX,sumYY,sumXY,nPointsInXX,nPointsInYY,nPointsInXY]=preComputeRcaCovariancesLoop(data,condRange,subjRange,initializePool,forceParallelization,verbose);
 else
     %[sumXX,sumYY,sumXY,nPointsInXX,nPointsInYY,nPointsInXY]=preComputeRcaCovariances(data);
-    [sumXX,sumYY,sumXY,nPointsInXX,nPointsInYY,nPointsInXY]=preComputeRcaCovariancesLoop(data);
+    [sumXX,sumYY,sumXY,nPointsInXX,nPointsInYY,nPointsInXY]=preComputeRcaCovariancesLoop(data,1,1,initializePool,forceParallelization,verbose);
 end
     
 
 
 % accumulate covariances across selected conditions/subjects
-fprintf('Accumulating covariance across selected conditions/subjects... \n');
+if verbose, fprintf('Accumulating covariance across selected conditions/subjects... \n'); end
 switch ndims(sumXX)
     case 2  % channels x channels
         Rxx=sumXX./nPointsInXX; Ryy=sumYY./nPointsInYY; Rxy=sumXY./nPointsInXY; 
@@ -107,7 +117,7 @@ switch ndims(sumXX)
 end
 
 % train RCA spatial filters
-[W,A,~,dGen,Kout] = rcaTrain(Rxx,Ryy,Rxy,nReg,nComp);
+[W,A,~,dGen,Kout] = rcaTrain(Rxx,Ryy,Rxy,nReg,nComp,verbose);
 
 % project data into RCA space
 if iscell(data)
@@ -115,7 +125,7 @@ if iscell(data)
     dataOut=cell(nCond,nSubjects);
     for subj=1:nSubjects
         for cond=1:nCond
-            fprintf('Projecting into RCA space for subject %d and condition %d... \n',subj,cond);
+            if verbose, fprintf('Projecting into RCA space for subject %d and condition %d... \n',subj,cond); end;
             thisVolume=data{cond,subj};
             dataOut{cond,subj}=rcaProject(thisVolume,W);
         end
@@ -125,7 +135,7 @@ if iscell(data)
         muData=nanmean(catData,3);
         semData=nanstd(catData,[],3)/sqrt(size(catData,3));
     catch
-        fprintf('could not compute means and sems \n');
+        warning('could not compute means and sems \n');
     end
 else
     dataOut = rcaProject(data,W);
@@ -143,7 +153,7 @@ if show
             axis off;
         end
     catch
-        fprintf('call to topoplot() failed: check locfile. \n');
+        warning('call to topoplot() failed: check locfile. \n');
         for c=1:nComp, subplot(3,nComp,c); plot(A(:,c),'*k'); end
         title(['RC' num2str(c)]);
     end
@@ -156,7 +166,7 @@ if show
             axis tight;
         end
     catch
-        fprintf('unable to plot rc means and sems. \n');
+        warning('unable to plot rc means and sems. \n');
     end
     
     try
@@ -168,10 +178,12 @@ if show
         plot(nEigs-Kout,eigs(nEigs-Kout),'*g');
         title('Within-trial covariance spectrum');
     catch
-        fprintf('unable to plot within-trial covariance spectrum. \n');
+        warning('unable to plot within-trial covariance spectrum. \n');
     end
     
     subplot(326); plot(dGen,'*k:'); title('Across-trial covariance spectrum');
     
+else
+	h = []; %avoids error is users requests h return value but passes show parameter as false
 end
 

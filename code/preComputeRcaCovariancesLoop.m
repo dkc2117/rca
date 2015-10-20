@@ -1,4 +1,4 @@
-function [sumXX,sumYY,sumXY,nPointsInXX,nPointsInYY,nPointsInXY]=preComputeRcaCovariancesLoop(data,condRange,subjRange)
+function [sumXX,sumYY,sumXY,nPointsInXX,nPointsInYY,nPointsInXY]=preComputeRcaCovariancesLoop(data,condRange,subjRange,initializePool,forceParallelization,verbose)
 % [SUMXX,SUMYY,SUMXY,NPOINTSINXX,NPOINTSINYY,NPOINTSINXY]=PRECOMPUTERCACOVARIANCESLOOP(DATA)
 % 
 % take in epoched data volume(s) to produce within- and
@@ -18,6 +18,10 @@ function [sumXX,sumYY,sumXY,nPointsInXX,nPointsInYY,nPointsInXY]=preComputeRcaCo
 % March 24th, 2015: code as for loop to handle large number of permutations
 % with high number of trials per condition (>30)
 % (c) Jacek P. Dmochowski, 2014
+if ~exist('verbose', 'var'), verbose = true; end
+if ~exist('forceParallelization', 'var'), forceParallelization = false; end
+if ~exist('initializePool', 'var'), initializePool = true; end
+
 if ~iscell(data), 
     nCond=1; nSubjects=1; subjRange=1; condRange=1; data={data}; 
 else
@@ -28,17 +32,23 @@ else
     nSubjects=size(data,2);
 end
 
-fprintf('Selected %d subjects and %d conditions for training... \n',nSubjects,nCond);
+if verbose, fprintf('Selected %d subjects and %d conditions for training... \n',nSubjects,nCond); end;
 
 [~,nElectrodes,~]=size(data{1,1});  % assume uniform (?)
 sumXX=zeros(nCond,nSubjects,nElectrodes,nElectrodes);sumYY=zeros(nCond,nSubjects,nElectrodes,nElectrodes);sumXY=zeros(nCond,nSubjects,nElectrodes,nElectrodes);
 nPointsInXX=zeros(nCond,nSubjects,nElectrodes,nElectrodes);nPointsInYY=zeros(nCond,nSubjects,nElectrodes,nElectrodes);nPointsInXY=zeros(nCond,nSubjects,nElectrodes,nElectrodes);
 
-matlabpool
+if initializePool
+	if verLessThan('matlab','8.2.0')
+		matlabpool; %#ok<DPOOL>
+	else
+		poolobj = parpool;
+	end
+end
 
 for cond=1:nCond
     for subj=1:nSubjects
-        fprintf('Computing covariances for subject %d and condition %d... \n',subjRange(subj),condRange(cond));
+        if verbose, fprintf('Computing covariances for subject %d and condition %d... \n',subjRange(subj),condRange(cond)); end
         thisVolume=data{cond,subj};
         [nSamples,nElectrodes,~]=size(thisVolume);
         if nSamples<nElectrodes, warning('Number of samples is less than the number of electrodes'); end
@@ -49,7 +59,7 @@ for cond=1:nCond
         nPairs=size(pindx,1);
         
         
-        if nTrials>30
+        if nTrials>30 || forceParallelization
 
             %% compute means
             thisVolume=permute(thisVolume,[2 1 3]); % electrode x sample x trials
@@ -106,7 +116,14 @@ end
 sumXX=squeeze(sumXX); sumYY=squeeze(sumYY); sumXY=squeeze(sumXY);
 nPointsInXX=squeeze(nPointsInXX); nPointsInYY=squeeze(nPointsInYY);  nPointsInXY=squeeze(nPointsInXY);
 
-matlabpool close
+if initializePool
+	if verLessThan('matlab','8.2.0')
+		matlabpool close; %#ok<DPOOL>
+	else
+		delete(poolobj);
+	end
+end
+
 
 
 
